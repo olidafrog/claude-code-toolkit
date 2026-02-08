@@ -20,6 +20,78 @@ This skill runs on a schedule to:
 
 **Key Feature:** Iterative feedback loop via Notion comments. Each comment is a separate conversation tracked to completion.
 
+---
+
+## ⚠️ CRITICAL: Sub-Agent Task Completion
+
+**THIS IS THE MOST IMPORTANT SECTION FOR SUB-AGENTS**
+
+When a sub-agent is spawned to work on a Notion task, IT MUST COMPLETE THE FULL WORKFLOW:
+
+### The Problem (Why This Exists)
+
+Sub-agents were completing work locally but NOT:
+1. Uploading results to Notion
+2. Updating task status to "Waiting Review"
+
+This caused the same task to be processed multiple times by the cron.
+
+### The Solution: Use `complete-task.sh`
+
+**EVERY sub-agent MUST call this script when finishing a task:**
+
+```bash
+/root/nyx/skills/notion-task-queue/complete-task.sh <page-id> <output-file>
+```
+
+This single script:
+- ✅ Uploads content to the Notion page
+- ✅ Updates status to "Waiting Review"
+- ✅ Verifies both steps succeeded
+- ✅ Logs the completion
+
+### Sub-Agent Workflow
+
+```
+1. Receive task with PAGE_ID
+2. Do the work (research, coding, etc.)
+3. Save output to /root/nyx/output/{Type}/{name}_{date}.md
+4. ⭐ RUN: complete-task.sh <PAGE_ID> <output-file>
+5. Report success ONLY after complete-task.sh succeeds
+```
+
+### Failure Conditions
+
+A sub-agent HAS FAILED if:
+- ❌ It finishes without running `complete-task.sh`
+- ❌ It reports success but `complete-task.sh` showed errors
+- ❌ The task remains in "In Progress" status
+
+### Related Scripts
+
+| Script | Purpose |
+|--------|---------|
+| `complete-task.sh` | **USE THIS** - Uploads AND updates status |
+| `generate-subagent-prompt.sh` | Generates prompt with completion instructions |
+| `scan-orphans.sh` | Detects tasks with local output but missing Notion update |
+
+### For Main Agent: Spawning Sub-Agents
+
+When spawning a sub-agent for a Notion task, use `generate-subagent-prompt.sh`:
+
+```bash
+PROMPT=$(/root/nyx/skills/notion-task-queue/generate-subagent-prompt.sh <page-id>)
+# Pass $PROMPT to the sub-agent
+```
+
+This generates a prompt that includes:
+- Task instructions
+- The PAGE_ID
+- Explicit completion requirements
+- The exact `complete-task.sh` command to run
+
+---
+
 ## Database Details
 
 - **Database ID**: `5df03450-e009-47eb-9440-1bca190f835c`
@@ -41,15 +113,33 @@ This skill runs on a schedule to:
 - **Created** (created_time): Auto-populated
 - **Updated** (last_edited_time): Auto-tracked
 
-## Status Definitions
+## Status Definitions & Transitions
 
-| Status | Meaning |
-|--------|---------|
-| **Backlog** | Items assigned but not yet prioritized for active work |
-| **To do** | Ready to be worked on, in priority order |
-| **In Progress** | Currently being actively worked on |
-| **Waiting Review** | Work completed, awaiting Oli's feedback via comments |
-| **Done** | Approved and complete (typically Oli moves items here) |
+| Status | Meaning | When to Use |
+|--------|---------|-------------|
+| **Backlog** | Items assigned but not yet prioritized for active work | User/agent sets when task created but not ready |
+| **To do** | Ready to be worked on, in priority order | User moves here when ready to action |
+| **In Progress** | Currently being actively worked on | **AUTO: Agent moves here when work starts** |
+| **Waiting Review** | Work completed, awaiting Oli's feedback via comments | **AUTO: Agent moves here when work completes** |
+| **Done** | Approved and complete | User moves here after reviewing/approving |
+
+### Status Transition Flow
+
+```
+To do  →  [Work starts]  →  In Progress  →  [Work completes]  →  Waiting Review
+  ↑                                                                      ↓
+  └────────────────────  [Feedback via comment]  ──────────────────────┘
+                         [Agent processes feedback]
+                         [Moves back to In Progress]
+                         [Completes, moves to Waiting Review]
+```
+
+**Key Rules:**
+1. **When starting ANY work** (sub-agent spawn, research, etc.) → Move to "In Progress"
+2. **When work completes** → Move to "Waiting Review"
+3. **With feedback comments** → Move to "In Progress", process, then back to "Waiting Review"
+4. **"In Progress" without comments** → SKIP (already being worked on elsewhere)
+5. **"Waiting Review" without comments** → SKIP (awaiting user feedback)
 
 ## Queue Priority Order
 
@@ -72,26 +162,170 @@ This ensures the feedback loop is always prioritized over new work.
 ### Problem to Avoid
 A cron run that gets stuck on one complex task (e.g., fixing a bug, building a feature) and never processes comments on other tasks. This breaks the feedback loop.
 
+---
+
+### ⚠️ MANDATORY FIRST STEP: Run the Comment Scanner (TRIAGE)
+
+**EVERY cron run MUST start by running the comment scanner:**
+
+```bash
+/root/nyx/skills/notion-task-queue/scan-all-for-comments.sh
+```
+
+**This script performs TRIAGE (Phase 1):**
+1. Queries ALL pending tasks (To do, In Progress, Waiting Review)
+2. Does QUICK page-level comment check (fast, ~1 second per task)
+3. Returns a prioritized list with `tasks_with_comments` FIRST
+4. Flags tasks that need full scan before processing
+
+**⚠️ IMPORTANT: This is TRIAGE only!**
+- The scanner checks PAGE-LEVEL comments for quick categorization
+- It does NOT check inline/block-level comments during triage
+- BEFORE processing any task, you MUST run the FULL comment scan (see below)
+
+---
+
+### ⚠️ CRITICAL: Full Scan BEFORE Processing (Phase 2)
+
+**After triage identifies tasks needing work, you MUST run a FULL comment scan on EACH task BEFORE taking ANY action:**
+
+```bash
+/root/nyx/skills/notion-task-queue/get-unprocessed-comments.sh <page-id>
+```
+
+**Why this matters:**
+- Oli's convention: If inline comments exist, he leaves a top-level comment like "Read the rest of the page before actioning"
+- The triage scan only sees page-level comments
+- Inline comments on specific sections may contain critical feedback
+- **You MUST read ALL comments (page-level AND inline) BEFORE doing any work**
+
+**The Two-Phase Workflow:**
+
+```
+PHASE 1: TRIAGE (Fast)
+┌─────────────────────────────────────────────────────────────────────┐
+│ scan-all-for-comments.sh                                            │
+│                                                                      │
+│ • Quick page-level comment check (~1 sec/task)                      │
+│ • Categorizes tasks: with_comments / fresh / skip                   │
+│ • Detects "read the rest" signals in top-level comments             │
+│ • OUTPUT: List of tasks needing work                                │
+└─────────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+PHASE 2: FULL SCAN (Before Processing Each Task)
+┌─────────────────────────────────────────────────────────────────────┐
+│ get-unprocessed-comments.sh <page-id>                               │
+│                                                                      │
+│ • Scans page-level AND all inline block comments                    │
+│ • Takes 30-60 seconds per task (acceptable - we're about to work)   │
+│ • Returns COMPLETE picture of all feedback                          │
+│ • OUTPUT: All unprocessed comments (page + inline)                  │
+└─────────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+PHASE 3: PROCESS (Only After Reading ALL Comments)
+┌─────────────────────────────────────────────────────────────────────┐
+│ • READ all returned comments carefully                              │
+│ • UNDERSTAND the full context (page + inline)                       │
+│ • THEN take action based on complete picture                        │
+│ • Reply to each comment with ✅ or ❓                                │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+**Convention: Top-Level Comment Signals**
+
+Oli may leave a top-level comment containing phrases like:
+- "Read the rest of the page before actioning"
+- "See inline comments below"
+- "Check the page-level comments"
+
+When detected, the triage phase sets `needs_full_scan: true` on that task.
+
+**⚠️ CRITICAL RULE:**
+```
+NEVER spawn a sub-agent or take action on a task without first running:
+get-unprocessed-comments.sh <page-id>
+
+And reading ALL returned comments!
+```
+
+---
+
+**Output structure:**
+```json
+{
+  "tasks_with_comments": [...],    // PRIORITY 1: Process feedback loop FIRST
+  "fresh_tasks": [...],            // PRIORITY 2: "To do" tasks ready for new work
+  "skip_tasks": [...],             // DO NOT PROCESS - awaiting Oli's feedback
+  "summary": { "with_comments": 2, "fresh_tasks": 2, "skip_tasks": 2, "total": 6 },
+  "instructions": "PROCESS: tasks_with_comments (PRIORITY 1), then fresh_tasks (PRIORITY 2). DO NOT process skip_tasks!"
+}
+```
+
+**⚠️ CRITICAL: Only process `tasks_with_comments` and `fresh_tasks`!**
+- `skip_tasks` contains "In Progress" and "Waiting Review" tasks WITHOUT new comments
+- These are awaiting Oli's feedback - DO NOT re-process them!
+- The script pre-categorizes tasks so you don't need to filter by status
+
+**DO NOT skip this step.** The check-queue.sh script does NOT check for comments - it only lists tasks by priority. The scanner is the ONLY reliable way to identify tasks with unprocessed comments.
+
+---
+
 ### Rules for Cron Runs
 
-1. **Scan ALL tasks first** - Get the full list of tasks with unprocessed comments before acting
-2. **Process comments before new work** - Comment responses are usually quick
+1. **Run scan-all-for-comments.sh FIRST** - Get the full list of tasks with unprocessed comments before acting
+2. **Process ALL comment-tasks before ANY new work** - Comment responses are usually quick
 3. **Time-box complex work** - If a comment requires significant work (>5 min estimated):
    - Reply with ❓ asking for confirmation, OR
    - Spawn a sub-agent for the complex work, OR
    - Reply with ✅ noting the work is queued
 4. **Never skip tasks** - Process all tasks with comments, even if just acknowledging
 
-### Example Cron Flow
+### Example Cron Flow with Status Transitions
 ```
-1. Scan all 6 tasks for comments → Found 3 tasks with comments
-2. Task A: 1 simple comment → ✅ Reply immediately
-3. Task B: 1 complex comment requiring code changes → ❓ "Shall I proceed with this?" OR spawn sub-agent
-4. Task C: 2 comments → ✅ Reply to both
-5. All comment-tasks processed → Now handle new work if time permits
+1. Run scan-all-for-comments.sh → Output:
+   - tasks_with_comments: 2 (feedback loop - PRIORITY 1)
+   - fresh_tasks: 2 ("To do" ready for work - PRIORITY 2)
+   - skip_tasks: 2 ("In Progress"/"Waiting Review" - DO NOT PROCESS!)
+   
+2. Process ALL tasks_with_comments FIRST (PRIORITY 1):
+   
+   Task A (Waiting Review → has comment):
+     • Move to "In Progress"
+     • Read comment: "Can you add more detail about X?"
+     • Process feedback, update content
+     • Reply with ✅ "Added detailed section on X"
+     • Move to "Waiting Review"
+   
+   Task B (Waiting Review → has complex comment):
+     • Move to "In Progress"
+     • Read comment: "Please rebuild this with feature Y"
+     • Spawn sub-agent with Opus
+     • Sub-agent completes work and moves to "Waiting Review"
+     • Reply with ✅ "Feature Y implemented, see updated page"
+   
+3. Process fresh_tasks NEXT (PRIORITY 2):
+   
+   Task C (To do → Research task):
+     • Move to "In Progress"
+     • Execute research (spawn sub-agent with Opus)
+     • Sub-agent uploads findings to Notion
+     • Sub-agent calls mark-task-complete.sh → "Waiting Review"
+   
+   Task D (To do → Documentation task):
+     • Move to "In Progress"
+     • Create documentation
+     • Upload to Notion
+     • Call mark-task-complete.sh → "Waiting Review"
+   
+4. DO NOT touch skip_tasks:
+   - These are "In Progress" (being worked on) or "Waiting Review" (awaiting feedback)
+   - Processing them would cause duplicates!
 ```
 
 ### What NOT to Do
+❌ Skip running scan-all-for-comments.sh and just process tasks in priority order
 ❌ Start fixing a complex issue and forget about other tasks
 ❌ Let one task consume the entire cron session
 ❌ Skip tasks because you're "in the middle of something"
@@ -182,11 +416,13 @@ Item types are defined by the **Type** field in the Notion record. Types should 
 
 3. **Empty comments + "Waiting Review" = SKIP** - The task is complete, awaiting Oli's review. Don't touch it.
 
-4. **Empty comments + "To do" = Fresh Task** - Execute the task according to its Type.
+4. **Empty comments + "In Progress" = SKIP** - Work is already in progress (likely by a sub-agent or previous cron run). Don't re-start it! Only process if Oli adds new comments with feedback.
 
-5. **ALWAYS update status** - When work is done, update status to "Waiting Review":
+5. **Empty comments + "To do" = Fresh Task** - Execute the task according to its Type.
+
+6. **ALWAYS update status** - When work is done, update status to "Waiting Review":
    ```bash
-   /root/clawd/skills/notion-task-queue/update-task-status.sh <page-id> "Waiting Review"
+   /root/nyx/skills/notion-task-queue/update-task-status.sh <page-id> "Waiting Review"
    ```
 
 ---
@@ -200,7 +436,7 @@ This is the core workflow for processing each task:
 **CRITICAL: Use the `get-unprocessed-comments.sh` script for every task** to get ALL unprocessed comments:
 
 ```bash
-/root/clawd/skills/notion-task-queue/get-unprocessed-comments.sh <page-id>
+/root/nyx/skills/notion-task-queue/get-unprocessed-comments.sh <page-id>
 ```
 
 This returns a JSON array of ALL un-actioned comment discussions (both page-level and inline comments on blocks).
@@ -285,7 +521,7 @@ Comments returned:
 
 **After processing ALL comments, IMMEDIATELY run:**
 ```bash
-/root/clawd/skills/notion-task-queue/get-unprocessed-comments.sh <page-id>
+/root/nyx/skills/notion-task-queue/get-unprocessed-comments.sh <page-id>
 ```
 
 **Gate conditions:**
@@ -407,15 +643,15 @@ Use ISO format or human-readable format:
 
 All task outputs are stored in:
 ```
-/root/clawd/output/{Type}/
+/root/nyx/output/{Type}/
 ```
 
 Examples:
-- `/root/clawd/output/Research/` - Research reports
-- `/root/clawd/output/Task/` - Task outputs
-- `/root/clawd/output/Documentation/` - Documentation files
-- `/root/clawd/output/Note/` - Note outputs
-- `/root/clawd/output/Idea/` - Idea outputs
+- `/root/nyx/output/Research/` - Research reports
+- `/root/nyx/output/Task/` - Task outputs
+- `/root/nyx/output/Documentation/` - Documentation files
+- `/root/nyx/output/Note/` - Note outputs
+- `/root/nyx/output/Idea/` - Idea outputs
 
 ### Directory Automation
 
@@ -467,11 +703,216 @@ Use the specified model (Sonnet/Opus/Haiku)
 
 ---
 
+## Timeout Configuration
+
+Sub-agents have timeouts to prevent runaway costs and resource exhaustion. Timeouts vary by task type:
+
+| Type | Timeout | Rationale |
+|------|---------|-----------|
+| **Research** | **1200 seconds (20 min)** | Research involves multiple web searches, reading documentation, synthesis, and uploading large reports to Notion |
+| **Research (Phased)** | **600 seconds (10 min) × 3 phases** | Complex research broken into phases with checkpoints |
+| Task | 600 seconds (10 min) | Standard tasks are usually shorter |
+| Documentation | 600 seconds (10 min) | Documentation is focused writing |
+| Note/Idea | 600 seconds (10 min) | Quick processing |
+
+### Why Research Gets More Time
+
+Research tasks typically involve:
+1. Multiple web searches (5-15 seconds each)
+2. Reading and processing documentation
+3. Synthesis and analysis (Opus model, slower but thorough)
+4. Writing comprehensive reports
+5. Uploading to Notion via batched API calls (2-3 minutes for large reports)
+
+10 minutes is often insufficient for this workflow, causing incomplete work.
+
+### When Spawning Sub-Agents
+
+```javascript
+// Example: Spawning a sub-agent with type-based timeout
+const timeout = (taskType === "Research") ? 1200 : 600;
+
+sessions_spawn({
+  task: "...",
+  model: "opus",  // or as specified
+  thinking: "low",
+  runTimeoutSeconds: timeout
+});
+```
+
+**Always check the Type field and set `runTimeoutSeconds` accordingly.**
+
+---
+
+## Phased Research (Advanced)
+
+For complex research tasks that might exceed even 20 minutes, use the **Phased Research** approach.
+
+### Enabling Phased Research
+
+Add a checkbox property called **"Phased Research"** to your Notion database. When checked, the task will use the 3-phase approach instead of a single sub-agent.
+
+### How Phased Research Works
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│ PHASE 1: Gather (10 min timeout)                                    │
+│                                                                      │
+│ • Understand the research question                                  │
+│ • Plan search strategy                                              │
+│ • Execute 5-10 web searches                                         │
+│ • Collect raw findings                                              │
+│                                                                      │
+│ OUTPUT: /tmp/nyx-research-phases/{task-id}/phase1.json              │
+└─────────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│ PHASE 2: Synthesize (10 min timeout)                                │
+│                                                                      │
+│ • Read Phase 1 checkpoint                                           │
+│ • Analyze and synthesize findings                                   │
+│ • Write comprehensive report                                        │
+│                                                                      │
+│ OUTPUT: /tmp/nyx-research-phases/{task-id}/phase2.md                │
+└─────────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│ PHASE 3: Upload (10 min timeout)                                    │
+│                                                                      │
+│ • Read Phase 2 report                                               │
+│ • Upload to Notion (batched, handles rate limits)                   │
+│ • Save to local archive                                             │
+│ • Update status to "Waiting Review"                                 │
+│ • Clean up checkpoint files                                         │
+│                                                                      │
+│ OUTPUT: Task complete, status updated                               │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### Benefits of Phased Research
+
+| Benefit | Description |
+|---------|-------------|
+| **Crash Recovery** | If Phase 2 fails, Phase 1 data is preserved. Restart from Phase 2. |
+| **Progress Visibility** | Status shows exactly where work is |
+| **Within Timeouts** | Each phase fits comfortably in 10 minutes |
+| **Debuggable** | Checkpoint files can be inspected |
+| **Parallelizable** | Can run Phase 1 of Task B while Phase 3 of Task A uploads |
+
+### Checkpoint Files
+
+```
+/tmp/nyx-research-phases/
+└── {task-id}/
+    ├── metadata.json      # Task name, started time
+    ├── phase1.json        # Raw research findings
+    └── phase2.md          # Complete report (markdown)
+```
+
+### Scripts
+
+| Script | Purpose |
+|--------|---------|
+| `phases/check-phase.sh` | Check current phase status |
+| `phases/phase1-gather.sh` | Generate Phase 1 prompt |
+| `phases/phase2-synthesize.sh` | Generate Phase 2 prompt |
+| `phases/phase3-upload.sh` | Generate Phase 3 prompt |
+| `phases/orchestrate-phased-research.sh` | Main orchestrator - determines and generates next phase |
+
+### Using Phased Research
+
+**When processing a Research task with "Phased Research" checked:**
+
+```bash
+# Get the next phase prompt and metadata
+RESULT=$(/root/nyx/skills/notion-task-queue/phases/orchestrate-phased-research.sh <page-id> 2>&1)
+
+# Extract metadata (JSON on first line of stderr)
+METADATA=$(echo "$RESULT" | head -1)
+PHASE=$(echo "$METADATA" | jq -r '.phase')
+TIMEOUT=$(echo "$METADATA" | jq -r '.timeout_seconds')
+
+# Extract prompt (rest of output)
+PROMPT=$(echo "$RESULT" | tail -n +2)
+
+# Spawn sub-agent for this phase
+sessions_spawn({
+  task: "$PROMPT",
+  label: "research-{task-id}-phase{$PHASE}",
+  model: "opus",
+  thinking: "low",
+  runTimeoutSeconds: $TIMEOUT
+})
+```
+
+### Decision Flow
+
+```
+Is "Phased Research" checkbox checked?
+    │
+    ├─→ YES: Use orchestrate-phased-research.sh
+    │        • Detects current phase from checkpoints
+    │        • Generates prompt for next phase
+    │        • Each phase gets 10 min timeout
+    │        • Cron continues phases across runs
+    │
+    └─→ NO: Use standard single-agent approach
+             • generate-subagent-prompt.sh
+             • 20 min timeout for Research
+             • Single sub-agent does all work
+```
+
+### Crash Recovery
+
+If a phase fails or times out:
+1. Next cron run detects incomplete phase via checkpoint files
+2. Resumes from that phase (doesn't restart from beginning)
+3. Phase 1 failure: Restart Phase 1 (no checkpoint yet)
+4. Phase 2 failure: Re-read Phase 1 checkpoint, retry Phase 2
+5. Phase 3 failure: Re-read Phase 2 report, retry upload
+
+---
+
 ## Scripts
+
+### `scan-all-for-comments.sh` ⚠️ MANDATORY FIRST STEP
+
+**Run this FIRST at the start of every cron run.** Scans ALL pending tasks to identify which ones have unprocessed comments.
+
+**Usage:**
+```bash
+bash /root/nyx/skills/notion-task-queue/scan-all-for-comments.sh
+```
+
+**Output:** JSON object with two arrays:
+- `tasks_with_comments` - Process these FIRST (feedback loop priority)
+- `tasks_without_comments` - Process these AFTER all comments are done
+
+**Example output:**
+```json
+{
+  "tasks_with_comments": [
+    {"id": "abc123", "name": "Task A", "comment_count": 2, "comments": [...]}
+  ],
+  "tasks_without_comments": [
+    {"id": "def456", "name": "Task B", "comment_count": 0, "comments": []}
+  ],
+  "summary": {"with_comments": 1, "without_comments": 1, "total": 2}
+}
+```
+
+**Why this exists:**
+- `check-queue.sh` only lists tasks by priority - it does NOT check for comments
+- Without this scanner, tasks with unprocessed comments can be missed if the cron gets blocked on a complex task
+- This script ensures the feedback loop is NEVER broken
+
+**Time:** 1-5 minutes depending on task count (scans each task comprehensively)
 
 ### `check-queue.sh`
 
-Queries Notion for pending tasks and outputs summary.
+Queries Notion for pending tasks and outputs summary. **Does NOT check for comments** - use `scan-all-for-comments.sh` for that.
 
 **Behavior:**
 1. Queries tasks assigned to Nyx with Status = Backlog, To do, In Progress, or Waiting Review
@@ -489,7 +930,7 @@ Gets comments that haven't been replied to by Nyx.
 
 **Usage:**
 ```bash
-bash /root/clawd/skills/notion-task-queue/get-unprocessed-comments.sh <page-id>
+bash /root/nyx/skills/notion-task-queue/get-unprocessed-comments.sh <page-id>
 ```
 
 **Returns:** JSON array of un-actioned comments (discussions where latest comment is not from Nyx)
@@ -512,7 +953,7 @@ Human-readable wrapper around `get-unprocessed-comments.sh` that displays unproc
 
 **Usage:**
 ```bash
-bash /root/clawd/skills/notion-task-queue/list-unprocessed-discussions.sh <page-id>
+bash /root/nyx/skills/notion-task-queue/list-unprocessed-discussions.sh <page-id>
 ```
 
 **Output:**
@@ -538,16 +979,48 @@ Replies to a comment to mark it as actioned.
 
 **Usage:**
 ```bash
-bash /root/clawd/skills/notion-task-queue/mark-comment-processed.sh <discussion-id> "✅ Brief summary of action taken"
+bash /root/nyx/skills/notion-task-queue/mark-comment-processed.sh <discussion-id> "✅ Brief summary of action taken"
 ```
 
-### `update-task-status.sh`
+### `update-task-status.sh` 
 
-Updates a task's status in Notion. **MUST be called after completing any work.**
+Updates a task's status in Notion.
 
 **Usage:**
 ```bash
-bash /root/clawd/skills/notion-task-queue/update-task-status.sh <page-id> "Waiting Review"
+bash /root/nyx/skills/notion-task-queue/update-task-status.sh <page-id> "<status>"
+```
+
+**Valid statuses:** Backlog, To do, In Progress, Waiting Review, Done
+
+**Status Transition Rules:**
+- **When starting work** → Move to "In Progress"
+- **When completing work** → Move to "Waiting Review" (or use mark-task-complete.sh)
+- **With new feedback** → Move to "In Progress", process, then back to "Waiting Review"
+
+### `mark-task-complete.sh` ✅ NEW
+
+Convenience script that marks a task as complete by moving it to "Waiting Review" status.
+
+**Usage:**
+```bash
+bash /root/nyx/skills/notion-task-queue/mark-task-complete.sh <page-id> ["Completion message"]
+```
+
+**When to use:** After finishing work on a task (research, development, documentation, etc.)
+
+**What it does:**
+1. Moves task status to "Waiting Review"
+2. Optionally logs completion message
+
+**Example:**
+```bash
+bash /root/nyx/skills/notion-task-queue/mark-task-complete.sh abc123 "Research complete, 3 key findings uploaded"
+```
+
+**Usage:**
+```bash
+bash /root/nyx/skills/notion-task-queue/update-task-status.sh <page-id> "Waiting Review"
 ```
 
 **Valid statuses:** Backlog, To do, In Progress, Waiting Review, Done
@@ -556,6 +1029,67 @@ bash /root/clawd/skills/notion-task-queue/update-task-status.sh <page-id> "Waiti
 - After processing a fresh "To do" task → Set to "Waiting Review"
 - After processing comments on any task → Set to "Waiting Review"
 - Starting complex work → Set to "In Progress" (optional, for visibility)
+
+### `complete-task.sh` ⭐ MANDATORY FOR SUB-AGENTS
+
+**THE script that sub-agents MUST use to finish tasks.** Uploads content AND updates status in one atomic operation.
+
+**Usage:**
+```bash
+bash /root/nyx/skills/notion-task-queue/complete-task.sh <page-id> <markdown-file> [--replace]
+```
+
+**What it does:**
+1. Uploads markdown content to the Notion page
+2. Updates task status to "Waiting Review"
+3. Verifies both steps succeeded
+4. Logs the completion for audit trail
+
+**Example:**
+```bash
+bash /root/nyx/skills/notion-task-queue/complete-task.sh \
+  "2f6e334e-6d5f-8060-91f4-ed979d32e712" \
+  "/root/nyx/output/Research/gemini-flash_2026-02-05.md"
+```
+
+**Why this exists:** Sub-agents were completing work but NOT uploading to Notion or updating status, causing duplicate processing.
+
+### `generate-subagent-prompt.sh` 📝 NEW
+
+Generates a complete prompt for spawning a sub-agent with all necessary context and completion requirements.
+
+**Usage:**
+```bash
+bash /root/nyx/skills/notion-task-queue/generate-subagent-prompt.sh <page-id>
+```
+
+**What it does:**
+1. Fetches task details from Notion (name, type, priority, content)
+2. Generates explicit completion requirements
+3. Includes the exact `complete-task.sh` command to run
+4. Outputs a ready-to-use prompt for the sub-agent
+
+**When to use:** Before spawning a sub-agent for a Notion task.
+
+### `scan-orphans.sh` 🔍 NEW
+
+Detects tasks with local output files but stuck in "In Progress" status (orphaned tasks).
+
+**Usage:**
+```bash
+bash /root/nyx/skills/notion-task-queue/scan-orphans.sh [--fix]
+```
+
+**What it does:**
+1. Finds all tasks in "In Progress" status
+2. Searches `/root/nyx/output/` for matching output files
+3. Reports potential orphans (work done locally but not completed in Notion)
+4. With `--fix`: Attempts to complete orphaned tasks by uploading to Notion
+
+**When to use:**
+- After a cron run to verify no tasks were left incomplete
+- To recover from sub-agent failures
+- As a periodic cleanup mechanism
 
 ---
 
@@ -652,22 +1186,22 @@ Cron expression: `0 7,12,16,19,22 * * *`
 
 ### Check the Queue
 ```bash
-bash /root/clawd/skills/notion-task-queue/check-queue.sh
+bash /root/nyx/skills/notion-task-queue/check-queue.sh
 ```
 
 ### Get Un-actioned Comments
 ```bash
-bash /root/clawd/skills/notion-task-queue/get-unprocessed-comments.sh <page-id>
+bash /root/nyx/skills/notion-task-queue/get-unprocessed-comments.sh <page-id>
 ```
 
 ### Reply to a Comment
 ```bash
-bash /root/clawd/skills/notion-task-queue/mark-comment-processed.sh <discussion-id> "✅ Summary"
+bash /root/nyx/skills/notion-task-queue/mark-comment-processed.sh <discussion-id> "✅ Summary"
 ```
 
 ### Update Task Status
 ```bash
-bash /root/clawd/skills/notion-task-queue/update-task-status.sh <page-id> "Waiting Review"
+bash /root/nyx/skills/notion-task-queue/update-task-status.sh <page-id> "Waiting Review"
 ```
 
 ---
@@ -689,28 +1223,43 @@ Edit `check-queue.sh`:
 
 ## Key Principles Summary
 
-1. **CHECK COMMENTS FIRST on EVERY task** - Run `get-unprocessed-comments.sh` BEFORE any action, regardless of status
-2. **⭐ READ ALL COMMENTS BEFORE ACTING** - Comments form a conversation. Read the ENTIRE conversation (page + block level) BEFORE taking ANY action. Never process comments one-by-one in isolation.
-3. **"To do" with comments = Feedback mode** - Don't overwrite content; process comments only
-4. **"Waiting Review" with no comments = SKIP** - Task is complete, awaiting Oli's review
-5. **ALL comments MUST be processed** - Loop through EVERY discussion_id; never skip or miss any
-6. **Reply individually** - Each comment gets its own response (don't bundle)
-7. **Track threads separately** - Each discussion_id is an independent conversation
-8. **VERIFY before proceeding** - Run `get-unprocessed-comments.sh` AFTER processing; only continue when it returns `[]`
-9. **ALWAYS update status** - Use `update-task-status.sh` after completing work → "Waiting Review"
-10. **Use markers** - ✅ for complete, ❓ for questions
-11. **Let Oli close** - Default to staying in Waiting Review
-12. **Segment content** - Use horizontal lines + timestamps between updates
-13. **Save locally AND to Notion** - Local files are backup, Notion is primary
+1. **⭐ RUN COMMENT SCANNER FIRST** - Every cron run MUST start with `scan-all-for-comments.sh` to identify ALL tasks with unprocessed comments BEFORE any processing
+2. **PROCESS ALL COMMENT-TASKS BEFORE NEW WORK** - The feedback loop is sacred. Process every task in `tasks_with_comments` before touching any fresh "To do" tasks
+3. **CHECK COMMENTS FIRST on EVERY task** - Run `get-unprocessed-comments.sh` BEFORE any action, regardless of status
+4. **⭐ READ ALL COMMENTS BEFORE ACTING** - Comments form a conversation. Read the ENTIRE conversation (page + block level) BEFORE taking ANY action. Never process comments one-by-one in isolation.
+5. **"To do" with comments = Feedback mode** - Don't overwrite content; process comments only
+6. **"Waiting Review" with no comments = SKIP** - Task is complete, awaiting Oli's review
+7. **ALL comments MUST be processed** - Loop through EVERY discussion_id; never skip or miss any
+8. **Reply individually** - Each comment gets its own response (don't bundle)
+9. **Track threads separately** - Each discussion_id is an independent conversation
+10. **VERIFY before proceeding** - Run `get-unprocessed-comments.sh` AFTER processing; only continue when it returns `[]`
+11. **ALWAYS update status** - Use `update-task-status.sh` after completing work → "Waiting Review"
+12. **Use markers** - ✅ for complete, ❓ for questions
+13. **Let Oli close** - Default to staying in Waiting Review
+14. **Segment content** - Use horizontal lines + timestamps between updates
+15. **Save locally AND to Notion** - Local files are backup, Notion is primary
+
+### Critical Status Transition Rules
+✅ **DO:** Move task to "In Progress" BEFORE starting any work (research, coding, writing, etc.)
+✅ **DO:** Move task to "Waiting Review" AFTER completing work (use mark-task-complete.sh)
+✅ **DO:** Move feedback tasks from "Waiting Review" → "In Progress" → back to "Waiting Review"
+✅ **DO:** Let sub-agents call mark-task-complete.sh when their work is done
 
 ### Critical Anti-Patterns to Avoid
+❌ **DO NOT:** Skip running `scan-all-for-comments.sh` at the start of a cron run
+❌ **DO NOT:** Process tasks in priority order without checking for comments first across ALL tasks
+❌ **DO NOT:** Let a complex task block the queue - spawn sub-agents or reply with ❓
 ❌ **DO NOT:** Process a "to do" task without checking for comments first
 ❌ **DO NOT:** Re-process a "Waiting Review" task that has no new comments
+❌ **DO NOT:** Re-process an "In Progress" task that has no new comments (it's already being worked on!)
+❌ **DO NOT:** Forget to update status after completing work - always move to "Waiting Review"
+❌ **DO NOT:** Leave tasks stuck in "In Progress" - they MUST move to "Waiting Review" when done
+❌ **DO NOT:** Process anything from `skip_tasks` - only process `tasks_with_comments` and `fresh_tasks`!
 ❌ **DO NOT:** See 2+ discussions → Action only 1 → Move to next task
 ❌ **DO NOT:** Forget to update task status after completing work
 ❌ **DO NOT:** Process comments one-by-one without reading ALL of them first (leads to missing context from block-level comments)
 
-✅ **DO:** Check comments → READ ALL comments together → Understand full context → Act → Reply to each → Update status → Verify → Move on
+✅ **DO:** Run scanner → Process `tasks_with_comments` (PRIORITY 1) → Process `fresh_tasks` (PRIORITY 2) → SKIP `skip_tasks` entirely → READ ALL comments together → Understand full context → Act → Reply to each → Update status → Verify → Move on
 
 ---
 

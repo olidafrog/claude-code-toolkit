@@ -1,5 +1,73 @@
 # Changelog - Notion Task Queue
 
+## 2026-02-02 - Critical Fix: Tasks with Comments Being Missed by Cron Queue
+
+### Problem Identified
+
+A task with unprocessed comments ("Organise all skills on root") was missed by multiple cron runs. The comment was made at 08:24 UTC but was still unactioned at 13:06 UTC (~5 hours later).
+
+### Root Cause Analysis
+
+1. **check-queue.sh doesn't check for comments** - It only lists tasks by priority/created date
+2. **Cron runs were getting blocked on complex tasks** - Logs showed 10-minute runs processing single tasks
+3. **The "scan all tasks first" guidance was just guidance** - Not enforced by any script
+4. **Result:** Complex tasks blocked the queue, and tasks with unprocessed comments were never reached
+
+**Evidence from logs:**
+- 10:00 cron ran for 10 minutes on ONE task (`durationMs=600030`)
+- The task with the comment was never processed despite matching the queue filter
+
+### Solution
+
+Created `scan-all-for-comments.sh` - a MANDATORY first step for every cron run:
+
+1. Queries ALL pending tasks (To do, In Progress, Waiting Review)
+2. Runs `get-unprocessed-comments.sh` on EACH task
+3. Returns a prioritized JSON structure:
+   - `tasks_with_comments` - Process these FIRST
+   - `tasks_without_comments` - Process these AFTER
+
+**Key insight:** The feedback loop cannot be maintained if tasks are processed in priority order without first identifying which ones have comments.
+
+### Changes Made
+
+| File | Changes |
+|------|---------|
+| `scan-all-for-comments.sh` | **NEW** - Comprehensive comment scanner |
+| `SKILL.md` | Added MANDATORY FIRST STEP section, updated Key Principles, updated Anti-Patterns |
+| `CHANGELOG.md` | This entry |
+
+### Updated Workflow
+
+**Before (broken):**
+```
+1. check-queue.sh → Get tasks by priority
+2. Process first task (might take 10 minutes)
+3. Never get to task with comments...
+```
+
+**After (fixed):**
+```
+1. scan-all-for-comments.sh → Get tasks WITH comments first
+2. Process ALL comment-tasks (quick replies, <5 min each)
+3. Then process fresh "To do" tasks if time permits
+```
+
+### Key Principle Added
+
+> **⭐ RUN COMMENT SCANNER FIRST** - Every cron run MUST start with `scan-all-for-comments.sh` to identify ALL tasks with unprocessed comments BEFORE any processing
+
+### Testing
+
+```bash
+# Run the scanner manually to see what it finds
+bash /root/clawd/skills/notion-task-queue/scan-all-for-comments.sh
+
+# Expected output shows tasks grouped by comment status
+```
+
+---
+
 ## 2026-02-02 - Critical Bug Fix: Block-Level Comments Being Ignored
 
 ### Problem Identified

@@ -45,7 +45,7 @@ get_comments_for_block() {
   local BLOCK_ID="$1"
   local OUTPUT_FILE="$2"
   local RESP
-  RESP=$(curl -s "https://api.notion.com/v1/comments?block_id=${BLOCK_ID}" \
+  RESP=$(curl -s --max-time 30 "https://api.notion.com/v1/comments?block_id=${BLOCK_ID}" \
     -H "Authorization: Bearer ${NOTION_KEY}" \
     -H "Notion-Version: ${NOTION_VERSION}")
   
@@ -72,7 +72,7 @@ fetch_block_comments() {
   done
   
   local RESP
-  RESP=$(curl -s "https://api.notion.com/v1/comments?block_id=${BLOCK_ID}" \
+  RESP=$(curl -s --max-time 30 "https://api.notion.com/v1/comments?block_id=${BLOCK_ID}" \
     -H "Authorization: Bearer ${NOTION_KEY}" \
     -H "Notion-Version: ${NOTION_VERSION}")
   
@@ -137,11 +137,11 @@ SKIPPED_COUNT=0
 
 while true; do
   if [ -z "$CURSOR" ]; then
-    RESPONSE=$(curl -s "https://api.notion.com/v1/blocks/${PAGE_ID}/children?page_size=100" \
+    RESPONSE=$(curl -s --max-time 30 "https://api.notion.com/v1/blocks/${PAGE_ID}/children?page_size=100" \
       -H "Authorization: Bearer ${NOTION_KEY}" \
       -H "Notion-Version: ${NOTION_VERSION}")
   else
-    RESPONSE=$(curl -s "https://api.notion.com/v1/blocks/${PAGE_ID}/children?page_size=100&start_cursor=${CURSOR}" \
+    RESPONSE=$(curl -s --max-time 30 "https://api.notion.com/v1/blocks/${PAGE_ID}/children?page_size=100&start_cursor=${CURSOR}" \
       -H "Authorization: Bearer ${NOTION_KEY}" \
       -H "Notion-Version: ${NOTION_VERSION}")
   fi
@@ -185,7 +185,7 @@ while true; do
     
     # Launch background job to fetch comments for this block
     (
-      RESP=$(curl -s "https://api.notion.com/v1/comments?block_id=${BLOCK_ID}" \
+      RESP=$(curl -s --max-time 30 "https://api.notion.com/v1/comments?block_id=${BLOCK_ID}" \
         -H "Authorization: Bearer ${NOTION_KEY}" \
         -H "Notion-Version: ${NOTION_VERSION}")
       
