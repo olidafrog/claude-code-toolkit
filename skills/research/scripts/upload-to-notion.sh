@@ -1,39 +1,46 @@
 #!/bin/bash
-# Upload markdown research reports to Notion with proper formatting
+# Upload markdown research reports to Notion with proper formatting and TOC
+# Uses notion-importer skill for full markdown support with table of contents
 
 set -euo pipefail
 
-NOTION_KEY="${NOTION_KEY:-$(cat ~/.config/notion/api_key 2>/dev/null || echo '')}"
-NOTION_VERSION="2022-06-28"  # Use stable version, NOT 2025-09-03 (has silent failures)
+NOTION_IMPORTER="/root/clawd/skills/notion-importer/upload.js"
 DATABASE_ID=""
 MARKDOWN_FILE=""
 TITLE=""
-TYPE="Notes"
-STATUS="Done"
+PROPERTIES=""
+NO_TOC=""
 
 usage() {
   cat <<EOF
 Usage: $(basename "$0") [OPTIONS] <markdown-file>
 
-Upload markdown research report to Notion database.
+Upload markdown research report to Notion database with table of contents.
+
+This script uses the notion-importer skill which:
+- Converts markdown to Notion blocks with full formatting support
+- Automatically adds table of contents for documents with 3+ headings
+- Supports tables, code blocks, lists, and inline formatting
 
 OPTIONS:
-  -d, --database ID     Notion database ID (required)
+  -d, --database ID     Notion database ID (defaults to Nyx database)
   -t, --title TITLE     Page title (defaults to filename or first # heading)
-  -T, --type TYPE       Page type property (default: Notes)
-  -s, --status STATUS   Page status property (default: Done)
-  -k, --key KEY         Notion API key (defaults to ~/.config/notion/api_key)
+  -p, --properties JSON Custom properties as JSON
+  --no-toc              Disable table of contents
   -h, --help            Show this help
 
-ENVIRONMENT:
-  NOTION_KEY            Notion API key (alternative to --key)
-
 EXAMPLES:
-  # Upload with auto-detected title
+  # Upload with auto-detected title and TOC
   $(basename "$0") -d 86e5cd15bff042cd9db8444d23a1e9a8 report.md
   
-  # Upload with custom title
-  $(basename "$0") -d 86e5cd15bff042cd9db8444d23a1e9a8 -t "Research Report" report.md
+  # Upload with custom title and properties
+  $(basename "$0") -d 86e5cd15bff042cd9db8444d23a1e9a8 \\
+    -t "Research Report" \\
+    -p '{"Type":{"select":{"name":"Research"}},"Status":{"select":{"name":"Done"}}}' \\
+    report.md
+  
+  # Upload without table of contents
+  $(basename "$0") -d 86e5cd15bff042cd9db8444d23a1e9a8 --no-toc report.md
 
 EOF
   exit 0
@@ -50,17 +57,13 @@ while [[ $# -gt 0 ]]; do
       TITLE="$2"
       shift 2
       ;;
-    -T|--type)
-      TYPE="$2"
+    -p|--properties)
+      PROPERTIES="$2"
       shift 2
       ;;
-    -s|--status)
-      STATUS="$2"
-      shift 2
-      ;;
-    -k|--key)
-      NOTION_KEY="$2"
-      shift 2
+    --no-toc)
+      NO_TOC="--no-toc"
+      shift
       ;;
     -h|--help)
       usage
@@ -77,11 +80,6 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Validate inputs
-if [[ -z "$DATABASE_ID" ]]; then
-  echo "Error: Database ID required (--database)" >&2
-  exit 1
-fi
-
 if [[ -z "$MARKDOWN_FILE" ]]; then
   echo "Error: Markdown file required" >&2
   exit 1
@@ -92,46 +90,30 @@ if [[ ! -f "$MARKDOWN_FILE" ]]; then
   exit 1
 fi
 
-if [[ -z "$NOTION_KEY" ]]; then
-  echo "Error: Notion API key required (set NOTION_KEY or use --key)" >&2
+if [[ ! -f "$NOTION_IMPORTER" ]]; then
+  echo "Error: notion-importer not found at $NOTION_IMPORTER" >&2
   exit 1
 fi
 
-# Remove dashes from database ID
-DATABASE_ID_CLEAN=$(echo "$DATABASE_ID" | tr -d '-')
+# Build command
+CMD="node $NOTION_IMPORTER \"$MARKDOWN_FILE\""
 
-# Extract title if not provided
-if [[ -z "$TITLE" ]]; then
-  # Try to extract from first # heading
-  TITLE=$(grep -m 1 '^# ' "$MARKDOWN_FILE" | sed 's/^# //' || basename "$MARKDOWN_FILE" .md)
+if [[ -n "$DATABASE_ID" ]]; then
+  CMD="$CMD --database \"$DATABASE_ID\""
 fi
 
-echo "Uploading to Notion..."
-echo "  Database: ${DATABASE_ID}"
-echo "  Title: ${TITLE}"
-echo "  File: ${MARKDOWN_FILE}"
-
-# Create page with title only first (Notion API has strict payload size limits)
-PAGE_ID=$(curl -s -X POST "https://api.notion.com/v1/pages" \
-  -H "Authorization: Bearer $NOTION_KEY" \
-  -H "Notion-Version: $NOTION_VERSION" \
-  -H "Content-Type: application/json" \
-  -d "{
-    \"parent\": {\"database_id\": \"$DATABASE_ID_CLEAN\"},
-    \"properties\": {
-      \"Name\": {\"title\": [{\"text\": {\"content\": \"$TITLE\"}}]},
-      \"Type\": {\"select\": {\"name\": \"$TYPE\"}},
-      \"Status\": {\"status\": {\"name\": \"$STATUS\"}}
-    }
-  }" | jq -r '.id // empty')
-
-if [[ -z "$PAGE_ID" ]]; then
-  echo "Error: Failed to create Notion page" >&2
-  exit 1
+if [[ -n "$TITLE" ]]; then
+  CMD="$CMD --title \"$TITLE\""
 fi
 
-echo "✅ Page created: $PAGE_ID"
-echo "   URL: https://www.notion.so/${PAGE_ID}"
-echo ""
-echo "Note: Full markdown upload requires pandoc or manual content addition"
-echo "      Consider using sessions_spawn with Notion upload task instead"
+if [[ -n "$PROPERTIES" ]]; then
+  CMD="$CMD --properties '$PROPERTIES'"
+fi
+
+if [[ -n "$NO_TOC" ]]; then
+  CMD="$CMD $NO_TOC"
+fi
+
+# Execute upload
+echo "Uploading to Notion with table of contents..."
+eval "$CMD"

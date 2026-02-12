@@ -421,17 +421,21 @@ RESEARCH QUALITY CHECKLIST:
 ### Step 5.3: Notion Upload (Optional)
 
 If database ID provided:
-- **CRITICAL: Use Notion API version `2022-06-28`** (NOT `2025-09-03` - has silent failures)
-- Use proper formatting (headings, tables, callouts, code blocks)
-- Set properties: Type: Notes, Status: Done
-- **CRITICAL: Batch large uploads** (see `references/notion-upload-guide.md`)
-  - Notion API limit: ~100 blocks per request
-  - Reports >100 blocks MUST be uploaded in batches of 100
-  - Verify each batch succeeds before continuing
-  - Check final block count matches expected
-- Return Notion URL with confirmation of blocks uploaded
-
----
+- **Use notion-importer skill** – `/root/clawd/skills/notion-importer/upload.js`
+  - Automatic table of contents for documents with 3+ headings
+  - Full markdown support (tables, code blocks, formatting)
+  - Batching and rate limiting handled automatically
+- **API Version:** Uses `2022-06-28` (stable, NOT 2025+ versions)
+- **Default Properties:** Set Type: Research, Status: Done (customizable)
+- Upload command:
+  ```bash
+  node /root/clawd/skills/notion-importer/upload.js report.md \
+    --database <db-id> \
+    --title "Research Report Title" \
+    --properties '{"Type":{"select":{"name":"Research"}},"Status":{"select":{"name":"Done"}}}'
+  ```
+- Returns Notion URL with block count confirmation
+- **Table of Contents:** Auto-enabled for research reports (disable with `--no-toc` if needed)
 
 ## Task Brief Template
 

@@ -19,6 +19,7 @@ fi
 
 PAGE_ID="$1"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+TRAJECTORY_INJECTOR="/root/nyx/skills/session-digest/scripts/inject-trajectories.sh"
 NOTION_KEY=$(cat ~/.config/notion/api_key)
 
 # Fetch task details from Notion
@@ -63,6 +64,35 @@ PAGE_CONTENT=$(curl -s --max-time 15 "https://api.notion.com/v1/blocks/$PAGE_ID/
     else empty
     end' 2>/dev/null || echo "[Unable to fetch page content]")
 
+# Detect domain from task content for trajectory injection
+DETECTED_DOMAIN="general"
+COMBINED_TEXT=$(echo "$TASK_NAME $PAGE_CONTENT" | tr '[:upper:]' '[:lower:]')
+if echo "$COMBINED_TEXT" | grep -qE "notion|page|database|property"; then
+  DETECTED_DOMAIN="notion"
+elif echo "$COMBINED_TEXT" | grep -qE "github|repository|commit|pull request|pr"; then
+  DETECTED_DOMAIN="github"
+elif echo "$COMBINED_TEXT" | grep -qE "browser|url|navigate|click|screenshot"; then
+  DETECTED_DOMAIN="browser"
+elif echo "$COMBINED_TEXT" | grep -qE "shell|command|script|bash|terminal"; then
+  DETECTED_DOMAIN="shell"
+fi
+
+# Detect task type for trajectory injection
+DETECTED_TYPE=""
+if echo "$COMBINED_TEXT" | grep -qE "build|create|implement|develop|make"; then
+  DETECTED_TYPE="build"
+elif echo "$COMBINED_TEXT" | grep -qE "fix|bug|error|broken|issue"; then
+  DETECTED_TYPE="fix"
+elif echo "$COMBINED_TEXT" | grep -qE "research|investigate|analyze|review|explore"; then
+  DETECTED_TYPE="research"
+fi
+
+# Inject relevant trajectories if available
+TRAJECTORY_CONTEXT=""
+if [[ -x "$TRAJECTORY_INJECTOR" ]]; then
+  TRAJECTORY_CONTEXT=$("$TRAJECTORY_INJECTOR" "$DETECTED_DOMAIN" "$DETECTED_TYPE" 2 2>/dev/null || true)
+fi
+
 # Sanitize task name for filename
 SANITIZED_NAME=$(echo "$TASK_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/--*/-/g' | sed 's/^-//' | sed 's/-$//')
 DATE=$(date +%Y-%m-%d)
@@ -87,6 +117,19 @@ cat << PROMPT_END
 ${PAGE_CONTENT}
 
 ---
+PROMPT_END
+
+# Add trajectory context if available
+if [[ -n "$TRAJECTORY_CONTEXT" ]]; then
+  cat << TRAJ_END
+
+$TRAJECTORY_CONTEXT
+
+---
+TRAJ_END
+fi
+
+cat << PROMPT_END2
 
 ## ⚠️ MANDATORY COMPLETION REQUIREMENTS
 
@@ -136,4 +179,4 @@ Your task is FAILED if:
 ---
 
 **Remember: The task is NOT done until \`complete-task.sh\` succeeds!**
-PROMPT_END
+PROMPT_END2
