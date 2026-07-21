@@ -1,0 +1,18 @@
+# Normalize line endings so the Windows checkout doesn't CRLF-mangle
+# shell scripts, skill markdown, or python helpers.
+* text=auto eol=lf
+
+# Shell / python must stay LF regardless of platform.
+*.sh   text eol=lf
+*.py   text eol=lf
+*.md   text eol=lf
+
+# PowerShell is fine as CRLF on Windows.
+*.ps1  text eol=crlf
+
+# Never touch binary assets.
+*.png  binary
+*.jpg  binary
+*.gif  binary
+*.woff2 binary
+*.pyc  binary
