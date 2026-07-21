@@ -1,85 +1,72 @@
-# Google Workspace (gog) setup — what's left to do
+# Google Workspace (gog) setup — Mac
 
-The `gog` CLI and its agent skills are installed locally. What's left requires
-your own Google sign-ins and console access, so it can't be automated.
+Status: **complete on Oli's Mac** (2026-07-21). All three accounts are authorized and
+verified. This doc is the runbook for re-doing it on a new machine.
 
-## Already done
+Tool source: [gogcli.sh](https://gogcli.sh) · CLI reference: `gog schema <cmd>` / `gog <cmd> --help`.
 
-- `gog` v0.34.0 installed to `%LOCALAPPDATA%\Programs\gog\` and added to your
-  user PATH.
-- Agent skills installed to `~/.claude/skills/`: `gog`, `gog-docs`,
-  `gog-sheets`, `gog-drive`, `gog-slides`, `gog-gmail`, `gog-calendar`.
-- House style + workflow skill added at
-  [skills/google-workspace/SKILL.md](SKILL.md), junctioned into
-  `~/.claude/skills/google-workspace`.
+## Current state (this Mac)
 
-## What you need to do
+- `gog` installed via Homebrew, on PATH at `/opt/homebrew/bin/gog`.
+- Google Cloud project `gog-cli` (`gog-cli-503117`) under the **personal** account, with a
+  single shared **External / Desktop app** OAuth client authorizing all three accounts.
+  Consent screen published to **Production** (no 7-day token expiry).
+- Accounts authorized, tokens in macOS Keychain:
 
-### 1. Create a Google Cloud project (~2 min)
+  | Alias      | Email                        |
+  |------------|------------------------------|
+  | `personal` | oli.ingram.design@gmail.com  |
+  | `work`     | oli@wonderstudios.com        |
+  | `org`      | oli@subsolar.studio          |
 
-Sign in with any of your three accounts (personal is fine — one OAuth app
-can authorize all three later).
+- Verify anytime: `gog auth doctor --check` and `gog auth alias list`.
 
-- [console.cloud.google.com/projectcreate](https://console.cloud.google.com/projectcreate)
-- Name it something like `gog-cli`.
+> Note: the `gog-docs` / `gog-sheets` / … service skills are **not** installed here. The
+> Homebrew formula ships the CLI only; use `gog schema` / `--help` for syntax. Only the
+> `google-workspace` house-style skill (this folder) is present.
 
-### 2. Enable the required APIs (~2 min)
+## Re-doing it on a new machine
 
-With the new project selected, open each link and click **Enable**:
-
-- [Drive API](https://console.cloud.google.com/apis/library/drive.googleapis.com)
-- [Docs API](https://console.cloud.google.com/apis/library/docs.googleapis.com)
-- [Sheets API](https://console.cloud.google.com/apis/library/sheets.googleapis.com)
-- [Slides API](https://console.cloud.google.com/apis/library/slides.googleapis.com)
-- [Gmail API](https://console.cloud.google.com/apis/library/gmail.googleapis.com)
-- [Calendar API](https://console.cloud.google.com/apis/library/calendar-json.googleapis.com)
-
-### 3. Configure the OAuth consent screen (~2 min)
-
-- [console.cloud.google.com/auth/branding](https://console.cloud.google.com/auth/branding)
-- Audience: **External**
-- Fill in app name and your email.
-
-### 4. Publish to Production
-
-- On the **Audience** page, click **Publish app**.
-- Important: skipping this leaves the app in Testing mode, where logins
-  expire every 7 days. No Google verification review is required for this
-  use case — you'll just click through an "unverified app" warning once per
-  account during sign-in.
-
-### 5. Create the OAuth client (~1 min)
-
-- [console.cloud.google.com/auth/clients](https://console.cloud.google.com/auth/clients)
-- **Create client** → type **Desktop app**.
-- Download the client JSON and note where you saved it.
-
-### 6. Hand back to Claude
-
-Tell Claude:
-
-- Where the downloaded client JSON file is.
-- The three account emails and which alias each should map to
-  (`personal` / `work` / `org` — see [SKILL.md](SKILL.md#account-routing)).
-
-Claude will then run, per account:
+### 1. Install gog
 
 ```bash
-gog auth credentials <path-to-client_secret.json>
-gog auth add <email> --services gmail,calendar,drive,docs,sheets,slides
-gog auth alias set <alias> <email>
+brew install openclaw/tap/gogcli
+gog --version
 ```
 
-Each `auth add` opens a browser tab for you to approve access. After all
-three accounts are added, Claude will verify with `gog auth doctor --check`
-and run an end-to-end test: create a sample styled Doc and Sheet in your
-Drive so you can confirm it looks right.
+(Other options — direct binary or build from source — at [gogcli.sh/install.html](https://gogcli.sh/install.html).)
 
-## Note on the company Workspace account
+### 2. Google Cloud OAuth setup (once, under the personal account)
 
-If your Workspace restricts third-party apps, sign-in may show "blocked by
-admin" for the `work` account. Since you're admin there, fix it via:
+Only needed if not reusing the existing `gog-cli` project's client JSON. Sign in with the
+**personal** account (one External client authorizes all three accounts).
 
-**Admin console → Security → API controls → App access control** — allow
-the OAuth client you created in step 5. Only needed if you actually hit
-this error.
+1. **Create project** → [console.cloud.google.com/projectcreate](https://console.cloud.google.com/projectcreate), name `gog-cli`.
+   - This account requires a billing account on the project; the Workspace APIs used are
+     free-tier, so attaching one incurs no charges.
+2. **Enable APIs** (click Enable on each): Drive, Docs, Sheets, Slides, Gmail, Calendar.
+3. **Consent screen** → [auth/branding](https://console.cloud.google.com/auth/branding) →
+   Get started → app name `gog-cli`, support email, Audience **External**, contact email.
+4. **Publish to Production** → [auth/audience](https://console.cloud.google.com/auth/audience) →
+   Publish app → Confirm. (Skipping this = logins expire every 7 days. No Google
+   verification review is needed for personal use — just click past the "unverified app"
+   warning once per account at sign-in.)
+5. **Create OAuth client** → [auth/clients](https://console.cloud.google.com/auth/clients) →
+   Create client → type **Desktop app** → download the client JSON.
+
+### 3. Authorize each account
+
+```bash
+gog auth credentials ~/Downloads/client_secret_*.json          # once; secret goes to Keychain
+gog auth add <email> --services gmail,calendar,drive,docs,sheets,slides   # per account
+gog auth alias set <alias> <email>                              # personal | work | org
+```
+
+Each `gog auth add` opens a browser tab: pick the account → Advanced → Go to gog-cli
+(unsafe) → Allow. Then `gog auth doctor --check` should report `status ok`.
+
+## Company Workspace note
+
+If a Workspace restricts third-party apps, `gog auth add` shows "blocked by admin" for that
+account. As admin, allow the OAuth client via **Admin console → Security → API controls →
+App access control**. (Not needed for `work`/`org` above — both signed in cleanly.)

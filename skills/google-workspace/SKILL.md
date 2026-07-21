@@ -20,9 +20,10 @@ Three accounts are configured as aliases:
 | `work`     | Company Workspace (Oli is admin) |
 | `org`      | Oli's own small organization |
 
-- Always pass `--account <alias>` explicitly on every command.
-- Infer the account from context (e.g. company project → `work`); if it is
-  genuinely ambiguous, ask before creating anything.
+- **Default is `work`.** Unless Oli specifies an account (or context clearly
+  points elsewhere, e.g. a personal-project file → `personal`), use `work`.
+- Always pass `--account <alias>` explicitly on every command — including when
+  defaulting to `work`; never omit the flag.
 - `gog auth list --check --json --no-input` shows configured accounts.
 
 ## Safety defaults
