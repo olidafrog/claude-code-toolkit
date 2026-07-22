@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-eagle_import.py — Eagle-side logic for the /update-eagle skill.
+eagle_import.py — Eagle-side logic for the /eagle-update skill.
 
 The skill scrapes X (Twitter) Likes with Claude-in-Chrome, then hands the
 collected tweets to this script, which does the deterministic Eagle work:
@@ -61,7 +61,7 @@ NAME_MAX = 60             # chars of tweet text used in the Eagle item name
 # the file into its library a moment later. So downloaded videos must OUTLIVE the
 # import call; we keep them in a persistent cache and sweep old ones next run rather
 # than deleting them straight away (a self-deleting temp dir loses the race).
-CACHE_DIR = os.path.expanduser("~/.claude/skills/update-eagle/.cache")
+CACHE_DIR = os.path.expanduser("~/.claude/skills/eagle-update/.cache")
 CACHE_TTL = 2 * 60 * 60   # seconds; sweep cached downloads older than this
 
 # ---------------------------------------------------------------------------

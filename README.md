@@ -133,6 +133,7 @@ scripts/
 | Skill | Purpose |
 |---|---|
 | `bird-skill` | X (Twitter) integration |
+| `eagle-update` | Sync X likes into Eagle library |
 | `find-logo` | Fetch brand logos as transparent SVG/PNG |
 | `google-workspace` | Google Workspace via gog CLI |
 | `merge-worktrees` | Consolidate finished git worktrees into main |
@@ -144,7 +145,6 @@ scripts/
 | `r3f-shaders` | Three.js / R3F scenes, shaders, post-processing + starter templates |
 | `shader-techniques` | Shader technique reference |
 | `spec-writer` | In-depth project specification interviewer |
-| `update-eagle` | Sync X likes into Eagle library |
 | `webgpu-threejs-tsl` | WebGPU Three.js + TSL guide |
 
 ### Skills — third-party (mirrored)
@@ -161,9 +161,7 @@ their sources): the eight official GSAP skills, `framer` + `framer-code-componen
 
 | Agent | Purpose |
 |---|---|
-| `backend-iot-builder` | Backend services, APIs, smart-home / IoT glue code |
 | `docs-maintainer` | Keeps project docs in sync with code changes |
-| `frontend-react-builder` | React / Next.js UI implementation |
 | `fullstack-code-reviewer` | TS/JS full-stack code review |
 | `technical-project-manager` | Turns plans/specs into execution roadmaps |
 

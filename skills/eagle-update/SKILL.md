@@ -1,9 +1,9 @@
 ---
-name: update-eagle
-description: Use when Oli wants to pull his latest X (Twitter) likes into his Eagle library — capturing new liked images and videos since the last import so he can review and file them. Triggers on "/update-eagle", "update eagle", "grab my twitter likes", "sync my X likes into eagle".
+name: eagle-update
+description: Use when Oli wants to pull his latest X (Twitter) likes into his Eagle library — capturing new liked images and videos since the last import so he can review and file them. Triggers on "/eagle-update", "update eagle", "grab my twitter likes", "sync my X likes into eagle".
 ---
 
-# update-eagle
+# eagle-update
 
 Capture the **delta** of Oli's X (Twitter) likes into his Eagle library: read his Likes,
 skip anything already in the library (dedup by source URL, resolution-agnostic), and import
@@ -15,8 +15,8 @@ Media saved: images + videos/GIFs. Each item stores the tweet URL as its Eagle s
 Two helper scripts do the deterministic work — call them, don't reimplement them:
 
 ```
-FETCH="$HOME/.claude/skills/update-eagle/scripts/fetch_likes.py"    # X → tweets JSON (bird)
-IMPORT="$HOME/.claude/skills/update-eagle/scripts/eagle_import.py"   # tweets JSON → Eagle
+FETCH="$HOME/.claude/skills/eagle-update/scripts/fetch_likes.py"    # X → tweets JSON (bird)
+IMPORT="$HOME/.claude/skills/eagle-update/scripts/eagle_import.py"   # tweets JSON → Eagle
 ```
 
 **Primary path = the `bird` CLI** (below): it reads Likes straight from X's GraphQL API using

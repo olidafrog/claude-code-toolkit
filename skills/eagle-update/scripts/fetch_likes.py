@@ -3,7 +3,7 @@
 fetch_likes.py — pull Oli's X (Twitter) Likes via the `bird` CLI and print them
 in the exact shape eagle_import.py's `import` subcommand expects.
 
-This is the PRIMARY path for /update-eagle: bird talks to X's internal GraphQL
+This is the PRIMARY path for /eagle-update: bird talks to X's internal GraphQL
 API with the logged-in session cookies (no browser, no scraping). If bird is
 unavailable or breaks (X rotates its GraphQL query IDs), the skill falls back to
 the Claude-in-Chrome DOM scrape documented in SKILL.md.
