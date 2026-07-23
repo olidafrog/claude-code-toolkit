@@ -24,8 +24,6 @@ case "$effort" in
   xhigh)  effort_disp="XHigh" ;;
   max)    effort_disp="Max" ;;
 esac
-model_disp="$model"
-[ -n "$effort_disp" ] && model_disp="$model - $effort_disp"
 
 # --- Rainbow colors (ROYGBIV) ---
 RED='\033[91m'
@@ -48,10 +46,11 @@ if [ -n "$git_branch" ]; then
   printf " ${DIM}|${RESET} ${ORANGE}\xF0\x9F\x8C\xBF %s${RESET}" "$git_branch"
 fi
 
-# --- 3. Model + thinking level (Yellow) ---
-printf " ${DIM}|${RESET} ${YELLOW}\xF0\x9F\xA4\x96 %s${RESET}" "$model_disp"
+# --- 3. Model (yellow) + thinking effort (grey, no icon/hyphen) ---
+printf " ${DIM}|${RESET} ${YELLOW}%s${RESET}" "$model"
+[ -n "$effort_disp" ] && printf " ${DIM}%s${RESET}" "$effort_disp"
 
-# --- 4. Context progress bar (Green, with colored bar fill) ---
+# --- 4. Context: ✻ marker + progress bar, both in the usage colour ---
 if [ -n "$used" ]; then
   used_int=$(printf '%.0f' "$used")
   bar_width=15
@@ -73,7 +72,7 @@ if [ -n "$used" ]; then
   i=0; while [ "$i" -lt "$filled" ]; do bar="${bar}█"; i=$((i+1)); done
   i=0; while [ "$i" -lt "$empty" ]; do bar="${bar}░"; i=$((i+1)); done
 
-  printf " ${DIM}|${RESET} ${GREEN}\xF0\x9F\xA7\xA0 ${bar_color}%s${RESET} ${DIM}%d%%${RESET}" "$bar" "$used_int"
+  printf " ${DIM}|${RESET} ${bar_color}✻${RESET} ${bar_color}%s${RESET} ${DIM}%d%%${RESET}" "$bar" "$used_int"
 fi
 
 # --- 5. Token counts (Blue in / Indigo out) ---
