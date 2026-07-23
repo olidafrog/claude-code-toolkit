@@ -10,22 +10,22 @@ path like the Mac.
 
 ## Playwright browser tooling
 
-The **browsers are installed**; the **`playwright-cli` wrapper is not yet installed** on this
-machine. Do **not** conclude "no browser is available" — a missing `playwright-cli` is not a
-missing browser.
+The tooling on this machine is **installed and working**. Do **not** conclude "no browser is
+available" — a missing PATH is **not** "no browser."
 
 - **Browsers** live in `%USERPROFILE%\AppData\Local\ms-playwright`
   (`C:\Users\oliin\AppData\Local\ms-playwright`) — Chromium build **1208** plus its headless
   shell, `ffmpeg`, and `winldd` are present. Check this path before deciding a browser is missing;
   only if truly absent: `npx playwright install chromium`.
-- **`playwright-cli`** is **not currently installed** (`@playwright/cli` is absent from the global
-  modules, and `playwright-cli` does not resolve on PATH). Install it with:
+- **`playwright-cli`** is installed **globally** — `@playwright/cli` **v0.1.17**, shim on PATH at
+  `C:\Users\oliin\AppData\Roaming\npm\playwright-cli.ps1`. Verified working **headless**
+  (`open` → `snapshot` → `close` round-trips cleanly). **Headless is the default**; pass `--headed`
+  to `open` for a visible window. To reinstall/update:
   ```powershell
   npm install -g @playwright/cli@latest
   ```
   npm's global prefix here is `%USERPROFILE%\AppData\Roaming\npm`
-  (`C:\Users\oliin\AppData\Roaming\npm`), which is already on PATH, so the `playwright-cli` shim
-  lands on PATH automatically after install.
+  (`C:\Users\oliin\AppData\Roaming\npm`), which is on PATH, so the shim resolves automatically.
 - **Node**: v24.12.0 at `C:\Program Files\nodejs` (npm 10.8.2). Only one active Node, so no
   per-version PATH juggling.
 
@@ -35,6 +35,9 @@ If `playwright-cli` does **not** resolve after installing (`Get-Command playwrig
 
 - Confirm `%USERPROFILE%\AppData\Roaming\npm` is on PATH (it holds the global `.cmd` shims), or
 - Re-install on the active Node: `npm install -g @playwright/cli@latest`.
+
+> A one-off libuv `UV_HANDLE_CLOSING` assertion (`async.c` line 76, exit 9) can print on the
+> **first** invocation right after install. It clears on subsequent runs and is harmless.
 
 ## Shell for `.sh` scripts (statusline, examples)
 
