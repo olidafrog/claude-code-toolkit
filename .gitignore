@@ -3,3 +3,6 @@ skills/eagle-update/.cache/
 
 # Playwright CLI artifacts (snapshots, console logs) — created wherever it's run
 .playwright-cli/
+
+# Cygwin/Git-Bash crash dumps
+*.stackdump
