@@ -45,7 +45,11 @@ function Link-Item($Src, $Dst) {
     Write-Host "  backed up $rel"
   }
   New-Item -ItemType Directory -Force -Path (Split-Path $Dst) | Out-Null
-  New-Item -ItemType SymbolicLink -Path $Dst -Target $Src | Out-Null
+  # Windows PowerShell 5.1's `New-Item -ItemType SymbolicLink` ignores Developer Mode and
+  # demands admin; `cmd mklink` honors Developer Mode and creates the link unprivileged.
+  $mkFlag = if (Test-Path $Src -PathType Container) { "/D " } else { "" }
+  cmd /c "mklink $mkFlag`"$Dst`" `"$Src`"" | Out-Null
+  if ($LASTEXITCODE -ne 0) { throw "mklink failed for $Dst -> $Src" }
   Write-Host "  linked    $($Dst.Substring($ClaudeHome.Length).TrimStart('\'))"
 }
 
