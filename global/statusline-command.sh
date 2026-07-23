@@ -13,6 +13,7 @@ total_in=$(echo "$input" | jq -r '.context_window.total_input_tokens // empty')
 total_out=$(echo "$input" | jq -r '.context_window.total_output_tokens // empty')
 effort=$(echo "$input" | jq -r '.effort.level // empty')
 session_used=$(echo "$input" | jq -r '.rate_limits.five_hour.used_percentage // empty')
+week_used=$(echo "$input" | jq -r '.rate_limits.seven_day.used_percentage // empty')
 
 # --- Thinking effort level (absent when model doesn't support it) ---
 effort_disp=""
@@ -34,6 +35,7 @@ GREEN='\033[92m'
 BLUE='\033[94m'
 INDIGO='\033[38;5;99m'
 VIOLET='\033[95m'
+CYAN='\033[96m'
 RESET='\033[0m'
 DIM='\033[2m'
 
@@ -90,22 +92,12 @@ if [ -n "$total_in" ] && [ -n "$total_out" ]; then
   printf " ${DIM}|${RESET} ${BLUE}\xE2\xAC\x87 %s${RESET}${DIM}in${RESET} ${INDIGO}\xE2\xAC\x86 %s${RESET}${DIM}out${RESET}" "$in_fmt " "$out_fmt "
 fi
 
-# --- 6. Session usage — 5-hour window (Violet) ---
-if [ -n "$session_used" ]; then
-  session_int=$(printf '%.0f' "$session_used")
-  printf " ${DIM}|${RESET} ${VIOLET}\xF0\x9F\x94\x8B %d%%${RESET}" "$session_int"
-fi
-
-# --- 7. Session cost (Money, color-coded by $ spent) ---
-cost=$(echo "$input" | jq -r '.cost.total_cost_usd // empty')
-if [ -n "$cost" ]; then
-  if awk -v c="$cost" 'BEGIN { exit !(c >= 5) }'; then
-    cost_color='\033[91m'   # bright red — high spend ($5+)
-  elif awk -v c="$cost" 'BEGIN { exit !(c >= 2) }'; then
-    cost_color='\033[93m'   # bright yellow — moderate spend ($2-5)
-  else
-    cost_color='\033[92m'   # bright green — low spend (<$2)
-  fi
-  cost_fmt=$(awk -v c="$cost" 'BEGIN { printf "%.2f", c }')
-  printf " ${DIM}|${RESET} ${cost_color}\xF0\x9F\x92\xB0 \$%s${RESET}" "$cost_fmt"
+# --- 6. Usage — S: session (5h)   W: week (7d, all models) ---
+# Minimal labels: one capital letter each, in its own colour (S cyan, W violet).
+# Note: the statusline JSON only exposes five_hour + seven_day rate limits — there is
+# no per-model figure, so a "Fable weekly" (F) value can't be shown until Claude Code adds it.
+if [ -n "$session_used" ] || [ -n "$week_used" ]; then
+  printf " ${DIM}|${RESET}"
+  [ -n "$session_used" ] && printf " ${CYAN}S %d%%${RESET}" "$(printf '%.0f' "$session_used")"
+  [ -n "$week_used" ]    && printf " ${VIOLET}W %d%%${RESET}" "$(printf '%.0f' "$week_used")"
 fi
