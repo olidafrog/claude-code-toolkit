@@ -36,6 +36,7 @@ BLUE='\033[94m'
 INDIGO='\033[38;5;99m'
 VIOLET='\033[95m'
 CYAN='\033[96m'
+PINK='\033[38;5;218m'
 RESET='\033[0m'
 DIM='\033[2m'
 
@@ -93,11 +94,13 @@ if [ -n "$total_in" ] && [ -n "$total_out" ]; then
 fi
 
 # --- 6. Usage — S: session (5h)   W: week (7d, all models) ---
-# Minimal labels: one capital letter each, in its own colour (S cyan, W violet).
+# Minimal labels: one coloured capital letter each (S cyan, W pink), with the % value in
+# grey (DIM) to match the context-window %. Session and week split by a dim | delimiter.
 # Note: the statusline JSON only exposes five_hour + seven_day rate limits — there is
 # no per-model figure, so a "Fable weekly" (F) value can't be shown until Claude Code adds it.
 if [ -n "$session_used" ] || [ -n "$week_used" ]; then
   printf " ${DIM}|${RESET}"
-  [ -n "$session_used" ] && printf " ${CYAN}S %d%%${RESET}" "$(printf '%.0f' "$session_used")"
-  [ -n "$week_used" ]    && printf " ${VIOLET}W %d%%${RESET}" "$(printf '%.0f' "$week_used")"
+  [ -n "$session_used" ] && printf " ${CYAN}S${RESET} ${DIM}%d%%${RESET}" "$(printf '%.0f' "$session_used")"
+  [ -n "$session_used" ] && [ -n "$week_used" ] && printf " ${DIM}|${RESET}"
+  [ -n "$week_used" ]    && printf " ${PINK}W${RESET} ${DIM}%d%%${RESET}" "$(printf '%.0f' "$week_used")"
 fi
