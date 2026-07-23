@@ -1,2 +1,5 @@
 # Throwaway media cache from the eagle-update skill (large .mp4 files)
 skills/eagle-update/.cache/
+
+# Playwright CLI artifacts (snapshots, console logs) — created wherever it's run
+.playwright-cli/

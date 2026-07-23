@@ -1,3 +1,0 @@
-- generic [active] [ref=e1]:
-  - heading "Playwright OK" [level=1] [ref=e2]
-  - button "Click me" [ref=e3]
