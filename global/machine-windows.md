@@ -54,6 +54,14 @@ point it at Git Bash explicitly, e.g.
 `"C:\\Program Files\\Git\\bin\\bash.exe" ~/.claude/statusline-command.sh`, or leave the statusline
 unset on this machine.
 
+**`statusline-command.sh` requires `jq`** to parse the JSON Claude Code pipes in. Git Bash does
+**not** bundle `jq`, so without it the line collapses to just the folder icon, git branch, and a
+bare model emoji (model name, context bar, tokens, session %, and cost all disappear). Installed
+here via `winget install jqlang.jq` (**jq 1.8.2**, shim at
+`%LOCALAPPDATA%\Microsoft\WinGet\Links\jq.exe`, on PATH). After installing, **restart Claude Code**
+so its process picks up the new PATH — a running session keeps the stale PATH and still shows the
+broken line until restarted.
+
 ## Symlink sync (setup gotcha)
 
 `~/.claude` is populated by `scripts\sync.ps1`, which symlinks the repo's skills / agents /
