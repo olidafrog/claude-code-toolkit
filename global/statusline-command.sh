@@ -39,11 +39,11 @@ RESET='\033[0m'
 DIM='\033[2m'
 
 # --- 1. Directory (Red) ---
-printf "${RED}\xF0\x9F\x93\x81 %s${RESET}" "$(basename "$dir")"
+printf "${RED}\xE2\x8C\x82 %s${RESET}" "$(basename "$dir")"
 
-# --- 2. Git branch (Orange) ---
+# --- 2. Git branch (Blue) ---
 if [ -n "$git_branch" ]; then
-  printf " ${DIM}|${RESET} ${ORANGE}\xF0\x9F\x8C\xBF %s${RESET}" "$git_branch"
+  printf " ${DIM}|${RESET} ${BLUE}\xE2\x8E\x87 %s${RESET}" "$git_branch"
 fi
 
 # --- 3. Model (yellow) + thinking effort (grey, no icon/hyphen) ---
